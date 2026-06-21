@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sign In — EduCenter</title>
+    <link rel="stylesheet" href="css/main.css" />
+  </head>
+  <body>
+    <div class="auth-shell">
+      <!-- Left brand panel -->
+      <div class="auth-brand">
+        <div class="auth-brand-content">
+          <div class="auth-brand-logo">EC</div>
+          <h1>Knowledge<br />starts here.</h1>
+          <p>
+            A unified platform for students, teachers, and administrators to
+            manage every part of the learning journey.
+          </p>
+          <div class="auth-features">
+            <div class="auth-feature">
+              <div class="auth-feature-dot"></div>
+              Browse and enroll in courses
+            </div>
+            <div class="auth-feature">
+              <div class="auth-feature-dot"></div>
+              Track grades and progress
+            </div>
+            <div class="auth-feature">
+              <div class="auth-feature-dot"></div>
+              Manage schedules and rosters
+            </div>
+            <div class="auth-feature">
+              <div class="auth-feature-dot"></div>
+              Review enrollment requests
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right sign-in panel -->
+      <div class="auth-panel">
+        <div class="auth-card">
+          <h2>Welcome back</h2>
+          <p class="auth-card-sub">Sign in to access your dashboard.</p>
+
+          <form id="login-form" novalidate>
+            <div class="form-group">
+              <label class="form-label" for="email"
+                >Email address <span class="req">*</span></label
+              >
+              <input
+                class="form-input"
+                type="email"
+                id="email"
+                name="email"
+                placeholder="you@example.com"
+                autocomplete="email"
+                required
+              />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="password"
+                >Password <span class="req">*</span></label
+              >
+              <input
+                class="form-input"
+                type="password"
+                id="password"
+                name="password"
+                placeholder="••••••••"
+                autocomplete="current-password"
+                required
+              />
+            </div>
+
+            <div
+              id="login-error"
+              style="display: none"
+              class="rejection-note"
+              role="alert"
+            ></div>
+
+            <button
+              type="submit"
+              class="btn btn-primary btn-lg btn-block"
+              id="login-btn"
+              style="margin-top: 8px"
+            >
+              Sign in
+            </button>
+          </form>
+
+          <p class="auth-link">
+            New student? <a href="register.html">Create an account</a>
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <script src="js/api.js"></script>
+    <script src="js/auth.js"></script>
+    <script>
+      // Already logged in? Redirect.
+      (function () {
+        const user = auth.getUser();
+        const token = auth.getToken();
+        if (token && user) auth.redirectByRole(user.role);
+      })();
+
+      const form = document.getElementById("login-form");
+      const errBox = document.getElementById("login-error");
+      const loginBtn = document.getElementById("login-btn");
+
+      function showError(msg) {
+        errBox.textContent = msg;
+        errBox.style.display = "block";
+      }
+      function hideError() {
+        errBox.style.display = "none";
+      }
+      /** Decode the JWT payload (no library needed — it's just base64). */
+      function decodeJwt(token) {
+        try {
+          const payload = token.split(".")[1];
+          const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
+          return JSON.parse(atob(base64));
+        } catch {
+          return null;
+        }
+      }
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        hideError();
+
+        const email = document.getElementById("email").value.trim();
+        const password = document.getElementById("password").value;
+
+        if (!email || !password) {
+          showError("Please enter your email and password.");
+          return;
+        }
+
+        loginBtn.disabled = true;
+        loginBtn.textContent = "Signing in…";
+
+        try {
+          const data = await api.post("/auth/login", { email, password });
+          // Adapt to actual response shape: { access_token, user }
+          const token = data.access_token;
+          if (!token) throw { message: "Invalid response from server." };
+
+          const user = data.user
+            ? { ...data.user, role: (data.user.role || "").toUpperCase() }
+            : null;
+          if (!user) {
+            const claimedUser = decodeJwt(token);
+            if (!claimedUser)
+              throw new Error("Could not read token. Please contact support.");
+            // NestJS typically stores: sub (id), email, role.
+            // Adjust field names below if your payload uses different keys.
+            user = {
+              id:  claimedUser.id || claimedUser.userId || "",
+              email: claimedUser.email || email,
+              full_name: claimedUser.full_name || claimedUser.name || email,
+              role: (claimedUser.role || claimedUser.roles?.[0] || ""),
+            };
+          }
+          if (!user.role) {
+            throw new Error(
+              "Your account has no role assigned. Please contact an administrator.",
+            );
+          }
+          auth.setSession(token, user);
+          auth.redirectByRole(user.role);
+        } catch (err) {
+          showError(
+            err.message || "Sign-in failed. Please check your credentials.",
+          );
+          loginBtn.disabled = false;
+          loginBtn.textContent = "Sign in";
+        }
+      });
+    </script>
+  </body>
+</html>

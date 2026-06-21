@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Course Roster — EduCenter</title>
+    <link rel="stylesheet" href="../css/main.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <div class="sidebar-overlay" id="sidebar-overlay"></div>
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-brand">
+          <div class="sidebar-logo">EC</div>
+          <div>
+            <div class="sidebar-brand-name">EduCenter</div>
+            <div class="sidebar-brand-sub">Teacher Portal</div>
+          </div>
+        </div>
+        <nav
+          class="sidebar-nav"
+          id="sidebar-nav"
+          aria-label="Teacher navigation"
+        ></nav>
+        <div class="sidebar-footer">
+          <div class="sidebar-user">
+            <div class="sidebar-avatar" id="sidebar-avatar">?</div>
+            <div class="sidebar-user-info">
+              <div class="sidebar-user-name" id="sidebar-user-name">
+                Loading…
+              </div>
+              <div class="sidebar-user-role" id="sidebar-user-role"></div>
+            </div>
+            <button
+              class="btn-logout"
+              id="btn-logout"
+              title="Sign out"
+              aria-label="Sign out"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                stroke-width="2"
+                width="16"
+                height="16"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <div class="main">
+        <header class="topbar">
+          <button
+            class="menu-toggle"
+            id="menu-toggle"
+            aria-label="Toggle sidebar"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              stroke-width="2"
+              width="20"
+              height="20"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
+              />
+            </svg>
+          </button>
+          <span class="topbar-title" id="topbar-title">Course Roster</span>
+          <div class="topbar-actions">
+            <a href="courses.html" class="btn btn-secondary btn-sm"
+              >← Back to courses</a
+            >
+          </div>
+        </header>
+
+        <main class="page-content">
+          <div class="page-header">
+            <div>
+              <h1 id="course-title">Loading course…</h1>
+              <p
+                id="course-meta"
+                style="color: var(--text-muted); font-size: 13.5px"
+              ></p>
+            </div>
+            <div class="page-header-actions">
+              <a
+                id="btn-all-grades"
+                href="grades.html"
+                class="btn btn-secondary btn-sm"
+                >View all grades</a
+              >
+            </div>
+          </div>
+
+          <div id="roster-container">
+            <div class="loading">
+              <div class="spinner"></div>
+              <span>Loading students…</span>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <script src="../js/api.js"></script>
+    <script src="../js/auth.js"></script>
+    <script src="../js/nav.js"></script>
+    <script src="../js/ui.js"></script>
+    <script>
+      const currentUser = auth.requireAuth("teacher");
+      const courseId = qp("courseId");
+
+      if (currentUser) {
+        renderNav("detail");
+        if (!courseId) {
+          setContent(
+            "roster-container",
+            emptyHTML("No course selected", "Go back and choose a course."),
+          );
+        } else {
+          document.getElementById("btn-all-grades").href =
+            `grades.html?courseId=${courseId}`;
+          loadRoster();
+        }
+      }
+
+      // Cache: map enrollmentId → grade object (if graded)
+      let gradesByEnrollment = {};
+
+      async function loadRoster() {
+        const el = document.getElementById("roster-container");
+        setContent(el, loadingHTML());
+        try {
+          // Course details, roster, and grades are three separate endpoints — fetch in parallel
+          const [courseRes, studentsRes, gradesRes] = await Promise.allSettled([
+            api.get(`/courses/${courseId}`),
+            api.get(`/teachers/me/courses/${courseId}/students`),
+            api.get(`/teachers/me/courses/${courseId}/grades`),
+          ]);
+
+          if (studentsRes.status === "rejected") throw studentsRes.reason;
+
+          // GET /teachers/me/courses/:courseId/students returns an array of Enrollment
+          // documents with student_id populated (full_name, email, phone)
+          const enrollments = Array.isArray(studentsRes.value)
+            ? studentsRes.value
+            : studentsRes.value?.data || [];
+
+          // Build grade lookup keyed by enrollment id (enrollment_id may or may not be populated)
+          gradesByEnrollment = {};
+          if (gradesRes.status === "fulfilled") {
+            const grades = Array.isArray(gradesRes.value)
+              ? gradesRes.value
+              : gradesRes.value?.data || [];
+            grades.forEach((g) => {
+              const eid = g.enrollment_id?._id || g.enrollment_id;
+              if (eid) gradesByEnrollment[eid] = g;
+            });
+          }
+
+          if (courseRes.status === "fulfilled") {
+            const course = courseRes.value?.data || courseRes.value;
+            updateCourseInfo(course);
+          } else {
+            document.getElementById("course-title").textContent =
+              "Course Roster";
+          }
+
+          renderRoster(enrollments);
+        } catch (err) {
+          setContent(el, emptyHTML("Couldn't load roster", err.message));
+        }
+      }
+
+      function updateCourseInfo(course) {
+        const title = course?.title || "Course Roster";
+        document.getElementById("course-title").textContent = title;
+        document.getElementById("topbar-title").textContent = title;
+        if (course?.schedule) {
+          document.getElementById("course-meta").textContent = course.schedule;
+        }
+      }
+
+      function renderRoster(enrollments) {
+        const el = document.getElementById("roster-container");
+        if (!enrollments.length) {
+          setContent(
+            el,
+            emptyHTML(
+              "No enrolled students",
+              "No students have been accepted into this course yet.",
+            ),
+          );
+          return;
+        }
+
+        const gradedCount = enrollments.filter(
+          (e) => !!gradesByEnrollment[e._id],
+        ).length;
+
+        setContent(
+          el,
+          `
+    <div class="stats-grid" style="margin-bottom:20px;">
+      <div class="stat-card accent-teal">
+        <div class="stat-label">Students enrolled</div>
+        <div class="stat-value">${enrollments.length}</div>
+      </div>
+      <div class="stat-card accent-navy">
+        <div class="stat-label">Graded</div>
+        <div class="stat-value">${gradedCount}</div>
+        <div class="stat-sub">of ${enrollments.length}</div>
+      </div>
+      <div class="stat-card accent-warning">
+        <div class="stat-label">Awaiting grade</div>
+        <div class="stat-value">${enrollments.length - gradedCount}</div>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Student</th><th>Email</th><th>Enrolled on</th>
+          <th>Score</th><th>Result</th><th style="width:160px;">Actions</th>
+        </tr></thead>
+        <tbody>${enrollments.map(enrollmentRow).join("")}</tbody>
+      </table>
+    </div>`,
+        );
+
+        el.querySelectorAll(".btn-grade").forEach((btn) => {
+          const eid = btn.dataset.enrollmentId;
+          const sname = btn.dataset.studentName;
+          const gradeId = btn.dataset.gradeId || null;
+          btn.addEventListener("click", () =>
+            openGradeModal(courseId, eid, sname, gradeId),
+          );
+        });
+      }
+
+      function enrollmentRow(e) {
+        // e is an Enrollment document: { _id, student_id: {full_name, email, phone}, status, requested_at, accepted_at }
+        const enrollmentId = e._id;
+        const student = e.student_id || {};
+        const name = student.full_name || "—";
+        const email = student.email || "—";
+        const enrolledAt = e.accepted_at || e.requested_at;
+
+        const grade = gradesByEnrollment[enrollmentId];
+        const score = grade ? grade.grade_value : null;
+        const result = grade ? (grade.result || "").toUpperCase() : null;
+        const gradeId = grade ? grade._id : null;
+
+        return `<tr>
+    <td class="td-name">${name}</td>
+    <td class="td-muted">${email}</td>
+    <td class="td-muted">${formatDate(enrolledAt)}</td>
+    <td>${
+      score !== null
+        ? `<span class="grade-score">${score}</span><span class="td-muted" style="font-size:12px;">/100</span>`
+        : '<span class="td-muted">—</span>'
+    }</td>
+    <td>${result ? statusBadge(result) : '<span class="td-muted">—</span>'}</td>
+    <td>
+      <button class="btn btn-sm ${grade ? "btn-secondary" : "btn-primary"} btn-grade"
+        data-enrollment-id="${enrollmentId}"
+        data-student-name="${name}"
+        data-grade-id="${gradeId || ""}">
+        ${grade ? "Edit grade" : "Add grade"}
+      </button>
+    </td>
+  </tr>`;
+      }
+
+      function openGradeModal(courseId, enrollmentId, studentName, gradeId) {
+        const isEdit = !!gradeId;
+        const existing = gradesByEnrollment[enrollmentId] || {};
+        const initScore = existing.grade_value ?? "";
+        const initResult = (existing.result || "").toUpperCase() || "PASSED";
+        const initNotes = existing.notes || "";
+
+        openModal(
+          isEdit ? `Edit Grade — ${studentName}` : `Add Grade — ${studentName}`,
+          `<div class="form-row" style="margin-bottom:0;">
+       <div class="form-group">
+         <label class="form-label" for="g-score">Score (0–100) <span class="req">*</span></label>
+         <input class="form-input" id="g-score" type="number" min="0" max="100" step="0.5"
+                value="${initScore}" placeholder="0–100">
+       </div>
+       <div class="form-group">
+         <label class="form-label" for="g-result">Result <span class="req">*</span></label>
+         <select class="form-select" id="g-result">
+           <option value="PASSED"${initResult === "PASSED" ? " selected" : ""}>Passed</option>
+           <option value="FAILED"${initResult === "FAILED" ? " selected" : ""}>Failed</option>
+         </select>
+       </div>
+     </div>
+     <div class="form-group" style="margin-top:14px;margin-bottom:0;">
+       <label class="form-label" for="g-notes">Notes (optional)</label>
+       <textarea class="form-textarea" id="g-notes" placeholder="Feedback for the student…">${initNotes}</textarea>
+     </div>
+     <div id="g-error" class="form-error-msg" style="display:none;margin-top:8px;"></div>`,
+          `<button class="btn btn-secondary btn-sm" onclick="closeModal()">Cancel</button>
+     <button class="btn btn-primary btn-sm" id="modal-confirm-btn">${isEdit ? "Update grade" : "Save grade"}</button>`,
+        );
+
+        // Auto-set result based on score
+        setTimeout(() => {
+          const scoreInput = document.getElementById("g-score");
+          const resultSel = document.getElementById("g-result");
+          scoreInput?.addEventListener("input", () => {
+            const v = parseFloat(scoreInput.value);
+            if (!isNaN(v)) resultSel.value = v >= 50 ? "PASSED" : "FAILED";
+          });
+          document
+            .getElementById("modal-confirm-btn")
+            ?.addEventListener("click", async () => {
+              const scoreVal = document.getElementById("g-score").value;
+              const resultVal = document.getElementById("g-result").value;
+              const notes = document.getElementById("g-notes").value.trim();
+              const errEl = document.getElementById("g-error");
+              if (scoreVal === "" || isNaN(parseFloat(scoreVal))) {
+                errEl.textContent = "Score is required.";
+                errEl.style.display = "block";
+                return;
+              }
+              errEl.style.display = "none";
+              const btn = document.getElementById("modal-confirm-btn");
+              btn.disabled = true;
+              btn.textContent = "Saving…";
+              const body = {
+                grade_value: parseFloat(scoreVal),
+                result: resultVal,
+                notes: notes || undefined,
+              };
+              try {
+                if (isEdit) {
+                  await api.put(`/teachers/me/grades/${gradeId}`, body);
+                } else {
+                  await api.post(
+                    `/teachers/me/courses/${courseId}/enrollments/${enrollmentId}/grade`,
+                    body,
+                  );
+                }
+                closeModal();
+                showToast(
+                  `Grade ${isEdit ? "updated" : "saved"} successfully.`,
+                  "success",
+                );
+                loadRoster();
+              } catch (err) {
+                errEl.textContent = err.message || "Save failed.";
+                errEl.style.display = "block";
+                btn.disabled = false;
+                btn.textContent = isEdit ? "Update grade" : "Save grade";
+              }
+            });
+        }, 50);
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Grades — EduCenter</title>
+    <link rel="stylesheet" href="../css/main.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <div class="sidebar-overlay" id="sidebar-overlay"></div>
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-brand">
+          <div class="sidebar-logo">EC</div>
+          <div>
+            <div class="sidebar-brand-name">EduCenter</div>
+            <div class="sidebar-brand-sub">Teacher Portal</div>
+          </div>
+        </div>
+        <nav
+          class="sidebar-nav"
+          id="sidebar-nav"
+          aria-label="Teacher navigation"
+        ></nav>
+        <div class="sidebar-footer">
+          <div class="sidebar-user">
+            <div class="sidebar-avatar" id="sidebar-avatar">?</div>
+            <div class="sidebar-user-info">
+              <div class="sidebar-user-name" id="sidebar-user-name">
+                Loading…
+              </div>
+              <div class="sidebar-user-role" id="sidebar-user-role"></div>
+            </div>
+            <button
+              class="btn-logout"
+              id="btn-logout"
+              title="Sign out"
+              aria-label="Sign out"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                stroke-width="2"
+                width="16"
+                height="16"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <div class="main">
+        <header class="topbar">
+          <button
+            class="menu-toggle"
+            id="menu-toggle"
+            aria-label="Toggle sidebar"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              stroke-width="2"
+              width="20"
+              height="20"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
+              />
+            </svg>
+          </button>
+          <span class="topbar-title" id="topbar-title">Grades</span>
+          <div class="topbar-actions">
+            <a href="courses.html" class="btn btn-secondary btn-sm"
+              >← My courses</a
+            >
+          </div>
+        </header>
+
+        <main class="page-content">
+          <div class="page-header">
+            <div>
+              <h1>Grade Book</h1>
+              <p id="course-subtitle">All assessed grades for this course.</p>
+            </div>
+          </div>
+
+          <!-- Course picker — shown if no courseId in URL -->
+          <div
+            id="course-picker"
+            style="display: none; margin-bottom: 20px"
+            class="card"
+          >
+            <div
+              class="card-body"
+              style="
+                padding: 16px 22px;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                flex-wrap: wrap;
+              "
+            >
+              <label
+                class="form-label"
+                for="course-select"
+                style="margin: 0; white-space: nowrap"
+                >Select course:</label
+              >
+              <select
+                class="form-select"
+                id="course-select"
+                style="max-width: 360px; flex: 1"
+              >
+                <option value="">— Choose a course —</option>
+              </select>
+            </div>
+          </div>
+
+          <div id="grades-container">
+            <div class="loading">
+              <div class="spinner"></div>
+              <span>Loading grades…</span>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <script src="../js/api.js"></script>
+    <script src="../js/auth.js"></script>
+    <script src="../js/nav.js"></script>
+    <script src="../js/ui.js"></script>
+    <script>
+      const currentUser = auth.requireAuth("teacher");
+      let activeCourseId = qp("courseId") || "";
+
+      if (currentUser) {
+        renderNav("grades");
+        init();
+      }
+
+      async function init() {
+        if (!activeCourseId) {
+          document.getElementById("course-picker").style.display = "";
+          setContent(
+            "grades-container",
+            emptyHTML("Select a course above", "Grade data will appear here."),
+          );
+          try {
+            const res = await api.get("/teachers/me/courses");
+            const list = Array.isArray(res) ? res : res.data || [];
+            const sel = document.getElementById("course-select");
+            list.forEach((c) => {
+              const o = document.createElement("option");
+              o.value = c._id || c.id;
+              o.textContent = c.title || o.value;
+              sel.appendChild(o);
+            });
+            sel.addEventListener("change", () => {
+              activeCourseId = sel.value;
+              if (activeCourseId) loadGrades();
+              else
+                setContent(
+                  "grades-container",
+                  emptyHTML(
+                    "Select a course above",
+                    "Grade data will appear here.",
+                  ),
+                );
+            });
+          } catch {
+            /* ignore */
+          }
+        } else {
+          loadGrades();
+        }
+      }
+
+      async function loadGrades() {
+        const el = document.getElementById("grades-container");
+        setContent(el, loadingHTML());
+        try {
+          // Course details aren't included on Grade records — fetch separately for the title
+          const [courseRes, gradesRes] = await Promise.allSettled([
+            api.get(`/courses/${activeCourseId}`),
+            api.get(`/teachers/me/courses/${activeCourseId}/grades`),
+          ]);
+
+          if (gradesRes.status === "rejected") throw gradesRes.reason;
+
+          if (courseRes.status === "fulfilled") {
+            const course = courseRes.value?.data || courseRes.value;
+            if (course?.title) {
+              document.getElementById("course-subtitle").textContent =
+                `Grade book for: ${course.title}`;
+              document.getElementById("topbar-title").textContent =
+                course.title;
+            }
+          }
+
+          const list = Array.isArray(gradesRes.value)
+            ? gradesRes.value
+            : gradesRes.value?.data || [];
+          renderGrades(list);
+        } catch (err) {
+          setContent(el, emptyHTML("Couldn't load grades", err.message));
+        }
+      }
+
+      function renderGrades(list) {
+        const el = document.getElementById("grades-container");
+        if (!list.length) {
+          setContent(
+            el,
+            emptyHTML(
+              "No grades yet",
+              "Grades added from the course roster will appear here.",
+            ),
+          );
+          return;
+        }
+
+        const passed = list.filter(
+          (g) => (g.result || "").toUpperCase() === "PASSED",
+        ).length;
+        const failed = list.length - passed;
+        const scores = list.map((g) => g.grade_value).filter((v) => v != null);
+        const avg = scores.length
+          ? scores.reduce((a, b) => a + b, 0) / scores.length
+          : null;
+        const top = scores.length ? Math.max(...scores) : null;
+        const low = scores.length ? Math.min(...scores) : null;
+
+        setContent(
+          el,
+          `
+    <div class="stats-grid" style="margin-bottom:20px;">
+      <div class="stat-card accent-teal">
+        <div class="stat-label">Total graded</div>
+        <div class="stat-value">${list.length}</div>
+      </div>
+      <div class="stat-card accent-teal">
+        <div class="stat-label">Passed</div>
+        <div class="stat-value">${passed}</div>
+        <div class="stat-sub">${list.length ? Math.round((passed / list.length) * 100) : 0}% pass rate</div>
+      </div>
+      <div class="stat-card accent-danger">
+        <div class="stat-label">Failed</div>
+        <div class="stat-value">${failed}</div>
+      </div>
+      <div class="stat-card accent-navy">
+        <div class="stat-label">Average score</div>
+        <div class="stat-value">${avg !== null ? avg.toFixed(1) : "—"}</div>
+        <div class="stat-sub">High: ${top ?? "—"} · Low: ${low ?? "—"}</div>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Student</th><th>Score</th><th>Result</th><th>Notes</th><th>Graded on</th><th style="width:100px;">Actions</th>
+        </tr></thead>
+        <tbody>${list.map(gradeRow).join("")}</tbody>
+      </table>
+    </div>`,
+        );
+
+        el.querySelectorAll(".btn-edit-grade").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const g = list.find((x) => (x._id || x.id) === btn.dataset.gradeId);
+            if (g) openEditModal(g);
+          });
+        });
+      }
+
+      function gradeRow(g) {
+        // g.enrollment_id is populated, and its own student_id is populated too (nested populate)
+        const id = g._id || g.id;
+        const student = g.enrollment_id?.student_id || {};
+        const name = student.full_name || "—";
+        const score = g.grade_value ?? "—";
+        const result = (g.result || "").toUpperCase();
+        const notes = g.notes || "";
+        const gradedAt = g.created_at;
+
+        return `<tr>
+    <td class="td-name">${name}</td>
+    <td><span class="grade-score">${score}</span><span class="td-muted" style="font-size:12px;">/100</span></td>
+    <td>${statusBadge(result)}</td>
+    <td class="td-muted" style="max-width:200px;">${notes || "—"}</td>
+    <td class="td-muted">${formatDate(gradedAt)}</td>
+    <td>
+      <button class="btn btn-ghost btn-sm btn-edit-grade" data-grade-id="${id}">Edit</button>
+    </td>
+  </tr>`;
+      }
+
+      function openEditModal(g) {
+        const gradeId = g._id || g.id;
+        const student = g.enrollment_id?.student_id || {};
+        const name = student.full_name || "Student";
+        const initScore = g.grade_value ?? "";
+        const initResult = (g.result || "PASSED").toUpperCase();
+        const initNotes = g.notes || "";
+
+        openModal(
+          `Edit Grade — ${name}`,
+          `<div class="form-row">
+       <div class="form-group">
+         <label class="form-label" for="ge-score">Score (0–100) <span class="req">*</span></label>
+         <input class="form-input" id="ge-score" type="number" min="0" max="100" step="0.5" value="${initScore}">
+       </div>
+       <div class="form-group">
+         <label class="form-label" for="ge-result">Result <span class="req">*</span></label>
+         <select class="form-select" id="ge-result">
+           <option value="PASSED"${initResult === "PASSED" ? " selected" : ""}>Passed</option>
+           <option value="FAILED"${initResult === "FAILED" ? " selected" : ""}>Failed</option>
+         </select>
+       </div>
+     </div>
+     <div class="form-group" style="margin-top:14px;margin-bottom:0;">
+       <label class="form-label" for="ge-notes">Notes</label>
+       <textarea class="form-textarea" id="ge-notes">${initNotes}</textarea>
+     </div>
+     <div id="ge-error" class="form-error-msg" style="display:none;margin-top:8px;"></div>`,
+          `<button class="btn btn-secondary btn-sm" onclick="closeModal()">Cancel</button>
+     <button class="btn btn-primary btn-sm" id="modal-confirm-btn">Update grade</button>`,
+        );
+
+        setTimeout(() => {
+          const scoreIn = document.getElementById("ge-score");
+          const resultSel = document.getElementById("ge-result");
+          scoreIn?.addEventListener("input", () => {
+            const v = parseFloat(scoreIn.value);
+            if (!isNaN(v)) resultSel.value = v >= 50 ? "PASSED" : "FAILED";
+          });
+          document
+            .getElementById("modal-confirm-btn")
+            ?.addEventListener("click", async () => {
+              const score = document.getElementById("ge-score").value;
+              const result = document.getElementById("ge-result").value;
+              const notes = document.getElementById("ge-notes").value.trim();
+              const errEl = document.getElementById("ge-error");
+              if (score === "" || isNaN(parseFloat(score))) {
+                errEl.textContent = "Score is required.";
+                errEl.style.display = "block";
+                return;
+              }
+              errEl.style.display = "none";
+              const btn = document.getElementById("modal-confirm-btn");
+              btn.disabled = true;
+              btn.textContent = "Updating…";
+              try {
+                await api.put(`/teachers/me/grades/${gradeId}`, {
+                  grade_value: parseFloat(score),
+                  result,
+                  notes: notes || undefined,
+                });
+                closeModal();
+                showToast("Grade updated successfully.", "success");
+                loadGrades();
+              } catch (err) {
+                errEl.textContent = err.message || "Update failed.";
+                errEl.style.display = "block";
+                btn.disabled = false;
+                btn.textContent = "Update grade";
+              }
+            });
+        }, 50);
+      }
+    </script>
+  </body>
+</html>

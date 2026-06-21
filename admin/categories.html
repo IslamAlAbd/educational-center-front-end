@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Categories — EduCenter Admin</title>
+    <link rel="stylesheet" href="../css/main.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <div class="sidebar-overlay" id="sidebar-overlay"></div>
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-brand">
+          <div class="sidebar-logo">EC</div>
+          <div>
+            <div class="sidebar-brand-name">EduCenter</div>
+            <div class="sidebar-brand-sub">Administration</div>
+          </div>
+        </div>
+        <nav
+          class="sidebar-nav"
+          id="sidebar-nav"
+          aria-label="Admin navigation"
+        ></nav>
+        <div class="sidebar-footer">
+          <div class="sidebar-user">
+            <div class="sidebar-avatar" id="sidebar-avatar">?</div>
+            <div class="sidebar-user-info">
+              <div class="sidebar-user-name" id="sidebar-user-name">
+                Loading…
+              </div>
+              <div class="sidebar-user-role" id="sidebar-user-role"></div>
+            </div>
+            <button
+              class="btn-logout"
+              id="btn-logout"
+              title="Sign out"
+              aria-label="Sign out"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                stroke-width="2"
+                width="16"
+                height="16"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <div class="main">
+        <header class="topbar">
+          <button
+            class="menu-toggle"
+            id="menu-toggle"
+            aria-label="Toggle sidebar"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              stroke-width="2"
+              width="20"
+              height="20"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
+              />
+            </svg>
+          </button>
+          <span class="topbar-title">Categories</span>
+          <div class="topbar-actions"></div>
+        </header>
+
+        <main class="page-content">
+          <div class="page-header">
+            <div>
+              <h1>Course Categories</h1>
+              <p>Organise your course catalogue into meaningful groups.</p>
+            </div>
+            <div class="page-header-actions">
+              <button class="btn btn-primary" id="btn-add">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  width="14"
+                  height="14"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M12 4.5v15m7.5-7.5h-15"
+                  />
+                </svg>
+                Add category
+              </button>
+            </div>
+          </div>
+
+          <div id="categories-container">
+            <div class="loading">
+              <div class="spinner"></div>
+              <span>Loading categories…</span>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <script src="../js/api.js"></script>
+    <script src="../js/auth.js"></script>
+    <script src="../js/nav.js"></script>
+    <script src="../js/ui.js"></script>
+    <script>
+      const currentUser = auth.requireAuth("admin");
+      if (currentUser) {
+        renderNav("categories");
+        document
+          .getElementById("btn-add")
+          .addEventListener("click", () => openCategoryModal(null));
+        loadCategories();
+      }
+
+      async function loadCategories() {
+        const el = document.getElementById("categories-container");
+        setContent(el, loadingHTML());
+        try {
+          const res = await api.get("/categories", true);
+          const list = Array.isArray(res)
+            ? res
+            : res.data || res.categories || [];
+          renderTable(list);
+        } catch (err) {
+          setContent(el, emptyHTML("Couldn't load categories", err.message));
+        }
+      }
+
+      function renderTable(list) {
+        const el = document.getElementById("categories-container");
+        if (!list.length) {
+          setContent(
+            el,
+            emptyHTML(
+              "No categories yet",
+              "Create your first category to start organising courses.",
+              `<button class="btn btn-primary btn-sm" onclick="openCategoryModal(null)">Add category</button>`,
+            ),
+          );
+          return;
+        }
+        setContent(
+          el,
+          `
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Description</th>
+            <th>Created</th>
+            <th style="width:140px;">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${list.map(categoryRow).join("")}
+        </tbody>
+      </table>
+    </div>`,
+        );
+
+        el.querySelectorAll(".btn-edit-cat").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const id = btn.dataset.id;
+            const cat = list.find((c) => (c._id || c.id) === id);
+            if (cat) openCategoryModal(cat);
+          });
+        });
+        el.querySelectorAll(".btn-del-cat").forEach((btn) => {
+          btn.addEventListener("click", () =>
+            deleteCategory(btn.dataset.id, btn.dataset.name),
+          );
+        });
+      }
+
+      function categoryRow(c) {
+        const id = c._id || c.id;
+        const name = c.name || "—";
+        const desc = c.description || c.desc || "";
+        const created = c.created_at || c.createdAt;
+        return `
+    <tr>
+      <td class="td-name">${name}</td>
+      <td class="td-muted" style="max-width:300px;">${desc || "<em>No description</em>"}</td>
+      <td class="td-muted">${formatDate(created)}</td>
+      <td>
+        <div class="td-actions">
+          <button class="btn btn-ghost btn-sm btn-edit-cat" data-id="${id}" aria-label="Edit ${name}">Edit</button>
+          <button class="btn btn-danger btn-sm btn-del-cat" data-id="${id}" data-name="${name}" aria-label="Delete ${name}">Delete</button>
+        </div>
+      </td>
+    </tr>`;
+      }
+
+      function openCategoryModal(cat) {
+        const isEdit = !!cat;
+        const id = cat ? cat._id || cat.id : null;
+        openModal(
+          isEdit ? "Edit Category" : "Add Category",
+          `<div class="form-group">
+       <label class="form-label" for="cat-name">Name <span class="req">*</span></label>
+       <input class="form-input" id="cat-name" type="text" value="${cat?.name || ""}" placeholder="e.g. Programming" maxlength="80">
+     </div>
+     <div class="form-group" style="margin-bottom:0;">
+       <label class="form-label" for="cat-desc">Description</label>
+       <textarea class="form-textarea" id="cat-desc" placeholder="Optional short description…">${cat?.description || cat?.desc || ""}</textarea>
+     </div>
+     <div id="cat-error" class="form-error-msg" style="display:none;margin-top:8px;"></div>`,
+          `<button class="btn btn-secondary btn-sm" onclick="closeModal()">Cancel</button>
+     <button class="btn btn-primary btn-sm" id="modal-confirm-btn">${isEdit ? "Save changes" : "Create"}</button>`,
+        );
+
+        setTimeout(() => {
+          document.getElementById("cat-name")?.focus();
+          document
+            .getElementById("modal-confirm-btn")
+            ?.addEventListener("click", async () => {
+              const name = document.getElementById("cat-name").value.trim();
+              const desc = document.getElementById("cat-desc").value.trim();
+              const errEl = document.getElementById("cat-error");
+              if (!name) {
+                errEl.textContent = "Name is required.";
+                errEl.style.display = "block";
+                return;
+              }
+              errEl.style.display = "none";
+              const btn = document.getElementById("modal-confirm-btn");
+              btn.disabled = true;
+              btn.textContent = "Saving…";
+              try {
+                const body = { name, description: desc };
+                if (isEdit) await api.patch(`/categories/${id}`, body);
+                else await api.post("/categories", body);
+                closeModal();
+                showToast(
+                  `Category ${isEdit ? "updated" : "created"} successfully.`,
+                  "success",
+                );
+                loadCategories();
+              } catch (err) {
+                errEl.textContent = err.message || "Save failed.";
+                errEl.style.display = "block";
+                btn.disabled = false;
+                btn.textContent = isEdit ? "Save changes" : "Create";
+              }
+            });
+        }, 50);
+      }
+
+      function deleteCategory(id, name) {
+        confirmDialog(
+          "Delete category",
+          `Are you sure you want to delete <strong>"${name}"</strong>? This cannot be undone and may affect courses in this category.`,
+          "Delete",
+          async () => {
+            try {
+              await api.delete(`/categories/${id}`);
+              closeModal();
+              showToast("Category deleted.", "success");
+              loadCategories();
+            } catch (err) {
+              showToast(err.message || "Delete failed.", "error");
+            }
+          },
+          true, // danger style
+        );
+      }
+    </script>
+  </body>
+</html>

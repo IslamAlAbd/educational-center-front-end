@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Create Account — EduCenter</title>
+  <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+
+<div class="auth-shell">
+  <div class="auth-brand">
+    <div class="auth-brand-content">
+      <div class="auth-brand-logo">EC</div>
+      <h1>Join EduCenter<br>as a student.</h1>
+      <p>Create your account in seconds and start exploring courses offered by our expert instructors.</p>
+      <div class="auth-features">
+        <div class="auth-feature"><div class="auth-feature-dot"></div>Browse the full course catalogue</div>
+        <div class="auth-feature"><div class="auth-feature-dot"></div>Submit enrollment requests</div>
+        <div class="auth-feature"><div class="auth-feature-dot"></div>Track your grades</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="auth-panel">
+    <div class="auth-card">
+      <h2>Create account</h2>
+      <p class="auth-card-sub">Student registration is free and instant.</p>
+
+      <form id="reg-form" novalidate>
+        <div class="form-group">
+          <label class="form-label" for="full_name">Full name <span class="req">*</span></label>
+          <input class="form-input" type="text" id="full_name" name="full_name"
+                 placeholder="Ahmad Al-Rashidi" autocomplete="name" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="email">Email address <span class="req">*</span></label>
+          <input class="form-input" type="email" id="email" name="email"
+                 placeholder="you@example.com" autocomplete="email" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="phone">Phone number</label>
+          <input class="form-input" type="tel" id="phone" name="phone"
+                 placeholder="+34 600 000 000" autocomplete="tel">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="password">Password <span class="req">*</span></label>
+          <input class="form-input" type="password" id="password" name="password"
+                 placeholder="At least 8 characters" autocomplete="new-password" required>
+          <p class="form-hint">Minimum 8 characters.</p>
+        </div>
+
+        <div id="reg-error" style="display:none" class="rejection-note" role="alert"></div>
+        <div id="reg-success" style="display:none" class="info-box" role="status" style="margin-bottom:10px;color:var(--teal);border-color:var(--teal);background:var(--teal-light);"></div>
+
+        <button type="submit" class="btn btn-primary btn-lg btn-block" id="reg-btn" style="margin-top:8px;">
+          Create account
+        </button>
+      </form>
+
+      <p class="auth-link">
+        Already have an account? <a href="index.html">Sign in</a>
+      </p>
+    </div>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script src="js/auth.js"></script>
+<script>
+  const form    = document.getElementById('reg-form');
+  const errBox  = document.getElementById('reg-error');
+  const okBox   = document.getElementById('reg-success');
+  const regBtn  = document.getElementById('reg-btn');
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errBox.style.display = 'none';
+    okBox.style.display  = 'none';
+
+    const full_name = document.getElementById('full_name').value.trim();
+    const email     = document.getElementById('email').value.trim();
+    const phone     = document.getElementById('phone').value.trim();
+    const password  = document.getElementById('password').value;
+
+    if (!full_name || !email || !password) {
+      errBox.textContent = 'Please fill in all required fields.';
+      errBox.style.display = 'block';
+      return;
+    }
+    if (password.length < 8) {
+      errBox.textContent = 'Password must be at least 8 characters.';
+      errBox.style.display = 'block';
+      return;
+    }
+
+    regBtn.disabled = true;
+    regBtn.textContent = 'Creating account…';
+
+    try {
+      const body = { full_name, email, password };
+      if (phone) body.phone = phone;
+      await api.post('/students/register', body, true);
+      okBox.textContent = 'Account created! Redirecting to sign in…';
+      okBox.style.display = 'block';
+      setTimeout(() => window.location.href = 'index.html', 1800);
+    } catch (err) {
+      errBox.textContent = err.message || 'Registration failed. Please try again.';
+      errBox.style.display = 'block';
+      regBtn.disabled = false;
+      regBtn.textContent = 'Create account';
+    }
+  });
+</script>
+</body>
+</html>

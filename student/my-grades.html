@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Grades — EduCenter</title>
+  <link rel="stylesheet" href="../css/main.css">
+</head>
+<body>
+<div class="shell">
+  <div class="sidebar-overlay" id="sidebar-overlay"></div>
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+      <div class="sidebar-logo">EC</div>
+      <div><div class="sidebar-brand-name">EduCenter</div><div class="sidebar-brand-sub">Student Portal</div></div>
+    </div>
+    <nav class="sidebar-nav" id="sidebar-nav" aria-label="Student navigation"></nav>
+    <div class="sidebar-footer">
+      <div class="sidebar-user">
+        <div class="sidebar-avatar" id="sidebar-avatar">?</div>
+        <div class="sidebar-user-info">
+          <div class="sidebar-user-name" id="sidebar-user-name">Loading…</div>
+          <div class="sidebar-user-role" id="sidebar-user-role"></div>
+        </div>
+        <button class="btn-logout" id="btn-logout" title="Sign out" aria-label="Sign out">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9"/></svg>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <button class="menu-toggle" id="menu-toggle" aria-label="Toggle sidebar">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" width="20" height="20"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"/></svg>
+      </button>
+      <span class="topbar-title">My Grades</span>
+      <div class="topbar-actions"></div>
+    </header>
+
+    <main class="page-content">
+      <div class="page-header">
+        <div>
+          <h1>My Grades</h1>
+          <p>Review your assessed results across all courses.</p>
+        </div>
+      </div>
+
+      <div class="filters-bar">
+        <label for="enrollment-filter" style="font-size:13px;font-weight:500;white-space:nowrap;">Filter by course:</label>
+        <select class="form-select" id="enrollment-filter" style="max-width:280px;">
+          <option value="">All courses</option>
+        </select>
+      </div>
+
+      <div id="grades-container">
+        <div class="loading"><div class="spinner"></div><span>Loading grades…</span></div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="../js/api.js"></script>
+<script src="../js/auth.js"></script>
+<script src="../js/nav.js"></script>
+<script src="../js/ui.js"></script>
+<script>
+const currentUser = auth.requireAuth('student');
+if (currentUser) {
+  renderNav('my-grades');
+  init();
+}
+
+async function init() {
+  await loadEnrollments();
+  document.getElementById('enrollment-filter').addEventListener('change', loadGrades);
+  await loadGrades();
+}
+
+async function loadEnrollments() {
+  try {
+    const res = await api.get('/students/me/courses?status=ACCEPTED');
+    const list = Array.isArray(res) ? res : (res.data || res.enrollments || []);
+    const sel = document.getElementById('enrollment-filter');
+    list.forEach(e => {
+      const course = e.course || {};
+      const id    = e._id || e.id;
+      const title = course.title || course.name || e.courseTitle || 'Course';
+      const opt   = document.createElement('option');
+      opt.value   = id;
+      opt.textContent = title;
+      sel.appendChild(opt);
+    });
+  } catch { /* filter not critical */ }
+}
+
+async function loadGrades() {
+  const container    = document.getElementById('grades-container');
+  const enrollmentId = document.getElementById('enrollment-filter').value;
+  setContent(container, loadingHTML());
+  try {
+    const url  = enrollmentId
+      ? `/students/me/grades?enrollmentId=${enrollmentId}`
+      : '/students/me/grades';
+    const res  = await api.get(url);
+    const list = Array.isArray(res) ? res : (res.data || res.grades || []);
+    renderGrades(list);
+  } catch (err) {
+    setContent(container, emptyHTML('Couldn\'t load grades', err.message || 'Please try again.'));
+  }
+}
+
+function renderGrades(list) {
+  const container = document.getElementById('grades-container');
+  if (!list.length) {
+    setContent(container, emptyHTML(
+      'No grades yet',
+      'Your grades will appear here once your instructor has assessed your enrollment.'
+    ));
+    return;
+  }
+
+  // Summary row
+  const passed = list.filter(g => (g.result || '').toUpperCase() === 'PASSED').length;
+  const avg    = list.reduce((s, g) => s + (g.grade_value || g.gradeValue || g.value || 0), 0) / list.length;
+
+  setContent(container, `
+    <div class="stats-grid" style="margin-bottom:20px;">
+      <div class="stat-card accent-teal">
+        <div class="stat-label">Grades received</div>
+        <div class="stat-value">${list.length}</div>
+      </div>
+      <div class="stat-card accent-teal">
+        <div class="stat-label">Passed</div>
+        <div class="stat-value">${passed}</div>
+        <div class="stat-sub">of ${list.length} assessed</div>
+      </div>
+      <div class="stat-card accent-navy">
+        <div class="stat-label">Average score</div>
+        <div class="stat-value">${list.length ? avg.toFixed(1) : '—'}</div>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Course</th>
+            <th>Score</th>
+            <th>Result</th>
+            <th>Graded on</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${list.map(gradeRow).join('')}
+        </tbody>
+      </table>
+    </div>`);
+}
+
+function gradeRow(g) {
+  const course    = g.enrollment?.course || g.course || {};
+  const title     = course.title || course.name || g.courseTitle || g.course_title || '—';
+  const score     = g.grade_value ?? g.gradeValue ?? g.value ?? '—';
+  const result    = (g.result || '').toUpperCase();
+  const gradedAt  = g.created_at || g.createdAt || g.graded_at;
+  const notes     = g.notes || g.feedback || '';
+
+  return `
+    <tr>
+      <td class="td-name">${title}</td>
+      <td><span class="grade-score">${score}</span><span class="td-muted" style="font-size:12px;margin-left:3px;">/100</span></td>
+      <td>${statusBadge(result)}</td>
+      <td class="td-muted">${formatDate(gradedAt)}</td>
+      <td class="td-muted" style="max-width:200px;">${notes || '—'}</td>
+    </tr>`;
+}
+</script>
+</body>
+</html>
